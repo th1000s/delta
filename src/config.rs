@@ -8,6 +8,7 @@ use syntect::highlighting::Style as SyntectStyle;
 use syntect::highlighting::Theme as SyntaxTheme;
 use syntect::parsing::SyntaxSet;
 
+use crate::ansi;
 use crate::bat_utils::output::PagingMode;
 use crate::cli;
 use crate::color;
@@ -15,9 +16,11 @@ use crate::delta::State;
 use crate::env;
 use crate::features::navigate;
 use crate::features::side_by_side;
+use crate::features::side_by_side_wrap;
 use crate::git_config::{GitConfig, GitConfigEntry};
 use crate::paint::BgFillMethod;
 use crate::style::{self, Style};
+use crate::syntect_color;
 
 pub struct Config {
     pub available_terminal_width: usize,
@@ -50,6 +53,7 @@ pub struct Config {
     pub hyperlinks: bool,
     pub hyperlinks_commit_link_format: Option<String>,
     pub hyperlinks_file_link_format: String,
+    pub inline_hint_color: Option<SyntectStyle>,
     pub inspect_raw_lines: cli::InspectRawLines,
     pub keep_plus_minus_markers: bool,
     pub line_fill_method: BgFillMethod,
@@ -95,6 +99,7 @@ pub struct Config {
     pub true_color: bool,
     pub truncation_symbol: String,
     pub whitespace_error_style: Style,
+    pub wrap_config: side_by_side_wrap::WrapConfig,
     pub zero_style: Style,
 }
 
@@ -253,8 +258,20 @@ impl From<cli::Opt> for Config {
             hyperlinks_commit_link_format: opt.hyperlinks_commit_link_format,
             hyperlinks_file_link_format: opt.hyperlinks_file_link_format,
             inspect_raw_lines: opt.computed.inspect_raw_lines,
+            inline_hint_color: Some(SyntectStyle {
+                foreground: syntect_color::syntect_color_from_ansi_name("blue").unwrap(),
+                ..SyntectStyle::default()
+            }),
             keep_plus_minus_markers: opt.keep_plus_minus_markers,
-            line_fill_method,
+            line_fill_method: if opt.side_by_side {
+                // Panels in side-by-side always sum up to an even number, if the terminal has
+                // an odd width then extending the background color with an ANSI sequence
+                // would indicate the wrong width and extend beyond truncated or wrapped content,
+                // thus spaces are used here by default.
+                BgFillMethod::Spaces
+            } else {
+                line_fill_method
+            },
             line_numbers: opt.line_numbers,
             line_numbers_left_format: opt.line_numbers_left_format,
             line_numbers_left_style,
@@ -266,7 +283,23 @@ impl From<cli::Opt> for Config {
             line_buffer_size: opt.line_buffer_size,
             max_line_distance: opt.max_line_distance,
             max_line_distance_for_naively_paired_lines,
-            max_line_length: opt.max_line_length,
+            max_line_length: match (opt.side_by_side, opt.wrap_max_lines) {
+                (false, _) | (true, 1) => opt.max_line_length,
+                // Ensure there is enough text to wrap, either don't truncate the input at all (0)
+                // or ensure there is enough for the requested number of lines.
+                // The input can contain ANSI sequences, so round up a bit. This is enough for
+                // normal `git diff`, but might not be with ANSI heavy input.
+                (true, 0) => 0,
+                (true, wrap_max_lines) => {
+                    let single_pane_width = opt.computed.available_terminal_width / 2;
+                    let add_25_percent_or_term_width =
+                        |x| x + std::cmp::max((x * 250) / 1000, single_pane_width) as usize;
+                    std::cmp::max(
+                        opt.max_line_length,
+                        add_25_percent_or_term_width(single_pane_width * wrap_max_lines),
+                    )
+                }
+            },
             minus_emph_style,
             minus_empty_line_marker_style,
             minus_file: opt.minus_file,
@@ -295,7 +328,17 @@ impl From<cli::Opt> for Config {
             tab_width: opt.tab_width,
             tokenization_regex,
             true_color: opt.computed.true_color,
-            truncation_symbol: "→".to_string(),
+            truncation_symbol: format!("{}→{}", ansi::ANSI_SGR_REVERSE, ansi::ANSI_SGR_RESET),
+            wrap_config: side_by_side_wrap::WrapConfig {
+                left_symbol: opt.wrap_left_symbol,
+                right_symbol: opt.wrap_right_symbol,
+                right_prefix_symbol: opt.wrap_right_prefix_symbol,
+                use_wrap_right_permille: {
+                    let percent = opt.wrap_right_percent.clamp(0.0, 100.0);
+                    (percent * 10.0).round() as usize
+                },
+                max_lines: opt.wrap_max_lines,
+            },
             whitespace_error_style,
             zero_style,
         }

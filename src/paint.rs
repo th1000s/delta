@@ -12,7 +12,9 @@ use crate::delta::State;
 use crate::edits;
 use crate::features::line_numbers;
 use crate::features::side_by_side;
+use crate::features::side_by_side::available_line_width;
 use crate::features::side_by_side::PanelSide;
+use crate::features::side_by_side_wrap;
 use crate::paint::superimpose_style_sections::superimpose_style_sections;
 use crate::plusminus::*;
 use crate::style::Style;
@@ -110,6 +112,7 @@ impl<'a> Painter<'a> {
             // in effect in which case we replace it with the appropriate marker).
             // TODO: Things should, but do not, work if this leading space is omitted at this stage.
             // See comment in align::Alignment::new.
+            // Note that a wrapped line also has a leading character added to remain compatible.
             line.next();
             format!(" {}\n", self.expand_tabs(line))
         } else {
@@ -172,21 +175,65 @@ impl<'a> Painter<'a> {
             );
 
             let states_left_right = PlusMinus::new(
-                self.minus_lines.iter().map(|(_, state)| state).collect(),
-                self.plus_lines.iter().map(|(_, state)| state).collect(),
+                self.minus_lines
+                    .iter()
+                    .map(|(_, state)| state.clone())
+                    .collect(),
+                self.plus_lines
+                    .iter()
+                    .map(|(_, state)| state.clone())
+                    .collect(),
             );
 
             let bg_fill_left_right = PlusMinus::new(
-                // Using an ANSI sequence to fill the left panel would not work
+                // Using an ANSI sequence to fill the left panel would not work.
                 BgShouldFill::With(BgFillMethod::Spaces),
-                // Use the configured method for the right panel
+                // Use what is configured for the right side.
                 BgShouldFill::With(self.config.line_fill_method),
             );
+
+            // Only set `should_wrap` to true if wrapping is wanted and lines which are
+            // too long are found.
+            // If so, remember the calculated line width and which of the lines are too
+            // long for later re-use.
+            let (should_wrap, line_width, long_lines) = {
+                if self.config.wrap_config.max_lines == 1 {
+                    (false, PlusMinus::default(), PlusMinus::default())
+                } else {
+                    let line_width = available_line_width(self.config, &self.line_numbers_data);
+
+                    let lines = PlusMinus::new(&self.minus_lines, &self.plus_lines);
+
+                    let (should_wrap, long_lines) =
+                        side_by_side::has_long_lines(&lines, &line_width);
+
+                    (should_wrap, line_width, long_lines)
+                }
+            };
+
+            let (line_alignment, line_states, syntax_left_right, diff_left_right) = if should_wrap {
+                // Calculated for syntect::highlighting::style::Style and delta::Style
+                side_by_side_wrap::wrap_plusminus_block(
+                    self.config,
+                    syntax_left_right,
+                    diff_left_right,
+                    &line_alignment,
+                    &line_width,
+                    &long_lines,
+                )
+            } else {
+                (
+                    line_alignment,
+                    states_left_right,
+                    syntax_left_right,
+                    diff_left_right,
+                )
+            };
 
             side_by_side::paint_minus_and_plus_lines_side_by_side(
                 syntax_left_right,
                 diff_left_right,
-                states_left_right,
+                line_states,
                 line_alignment,
                 &mut self.output_buffer,
                 self.config,
@@ -250,7 +297,9 @@ impl<'a> Painter<'a> {
         let diff_style_sections = vec![(self.config.zero_style, lines[0].0.as_str())]; // TODO: compute style from state
 
         if self.config.side_by_side {
+            // `lines[0].0` so the line has the '\n' already added (as in the +- case)
             side_by_side::paint_zero_lines_side_by_side(
+                &lines[0].0,
                 syntax_style_sections,
                 vec![diff_style_sections],
                 &mut self.output_buffer,
@@ -381,7 +430,9 @@ impl<'a> Painter<'a> {
         // style:          for right fill if line contains no emph sections
         // non_emph_style: for right fill if line contains emph sections
         let (style, non_emph_style) = match state {
-            State::HunkMinus(None) => (config.minus_style, config.minus_non_emph_style),
+            State::HunkMinus(None) | State::HunkMinusWrapped => {
+                (config.minus_style, config.minus_non_emph_style)
+            }
             State::HunkMinus(Some(raw_line)) => {
                 // TODO: This is the second time we are parsing the ANSI sequences
                 if let Some(ansi_term_style) = ansi::parse_first_style(raw_line) {
@@ -394,8 +445,10 @@ impl<'a> Painter<'a> {
                     (config.minus_style, config.minus_non_emph_style)
                 }
             }
-            State::HunkZero => (config.zero_style, config.zero_style),
-            State::HunkPlus(None) => (config.plus_style, config.plus_non_emph_style),
+            State::HunkZero | State::HunkZeroWrapped => (config.zero_style, config.zero_style),
+            State::HunkPlus(None) | State::HunkPlusWrapped => {
+                (config.plus_style, config.plus_non_emph_style)
+            }
             State::HunkPlus(Some(raw_line)) => {
                 // TODO: This is the second time we are parsing the ANSI sequences
                 if let Some(ansi_term_style) = ansi::parse_first_style(raw_line) {

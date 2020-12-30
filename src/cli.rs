@@ -7,11 +7,24 @@ use structopt::clap::AppSettings::{ColorAlways, ColoredHelp, DeriveDisplayOrder}
 use structopt::{clap, StructOpt};
 use syntect::highlighting::Theme as SyntaxTheme;
 use syntect::parsing::SyntaxSet;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::bat_utils::assets::HighlightingAssets;
 use crate::bat_utils::output::PagingMode;
 use crate::git_config::{GitConfig, GitConfigEntry};
 use crate::options;
+
+pub const INLINE_SYMBOL_WIDTH_1: usize = 1;
+
+fn ensure_display_width(arg: &str) -> Result<String, String> {
+    match arg.grapheme_indices(true).count() {
+        INLINE_SYMBOL_WIDTH_1 => Ok(arg.into()),
+        width => Err(format!(
+            "Display width of \"{}\" must be {} but is {}",
+            arg, INLINE_SYMBOL_WIDTH_1, width
+        )),
+    }
+}
 
 #[derive(StructOpt, Default)]
 #[structopt(
@@ -496,6 +509,31 @@ pub struct Opt {
     /// and LINE NUMBERS sections.
     #[structopt(long = "line-numbers-right-style", default_value = "auto")]
     pub line_numbers_right_style: String,
+
+    /// Maximum number of wrapped lines to display. Any content that still does not fit will be truncated.
+    /// A value of 0 means no limit. Only used in side-by-side mode.
+    #[structopt(long = "wrap-max-lines", default_value = "3")]
+    pub wrap_max_lines: usize,
+
+    /// Symbol added to the end of a line indicating that the content has been wrapped
+    /// onto the next line and continues left-aligned.
+    #[structopt(long = "wrap-left-symbol", default_value = "↵", parse(try_from_str = ensure_display_width))]
+    pub wrap_left_symbol: String,
+
+    /// Symbol added to the end of a line indicating that the content has been wrapped
+    /// onto the next line and continues right-aligned.
+    #[structopt(long = "wrap-right-symbol", default_value = "↴", parse(try_from_str = ensure_display_width))]
+    pub wrap_right_symbol: String,
+
+    /// Threshold for right-aligning wrapped content. If the length of the remaining wrapped
+    /// content, as a percentage of width, is less than this quantity it will be right-aligned.
+    /// Otherwise it will be left-aligned.
+    #[structopt(long = "wrap-right-percent", default_value = "37.0")]
+    pub wrap_right_percent: f64,
+
+    /// Symbol displayed in front of right-aligned wrapped content.
+    #[structopt(long = "wrap-right-prefix-symbol", default_value = "…", parse(try_from_str = ensure_display_width))]
+    pub wrap_right_prefix_symbol: String,
 
     #[structopt(long = "file-modified-label", default_value = "")]
     /// Text to display in front of a modified file path.
