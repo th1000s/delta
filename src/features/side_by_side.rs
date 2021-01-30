@@ -62,7 +62,9 @@ impl<T> IndexMut<PanelSide> for PlusMinus<T> {
     }
 }
 
-pub type SideBySideData = PlusMinus<Panel>;
+type LeftRight<T> = PlusMinus<T>;
+
+pub type SideBySideData = LeftRight<Panel>;
 
 impl SideBySideData {
     pub fn new_sbs(decorations_width: &cli::Width, available_terminal_width: &usize) -> Self {
@@ -81,6 +83,23 @@ impl SideBySideData {
             },
         )
     }
+}
+
+pub fn available_line_width(
+    config: &Config,
+    data: &line_numbers::LineNumbersData,
+) -> line_numbers::SideBySideLineWidth {
+    let linennumbers_width = data.formatted_width();
+
+    // The width can be reduced by the line numbers and/or a possibly kept 1-wide "+/-/ " prefix.
+    let line_width = |side: PanelSide| {
+        config.side_by_side_data[side]
+            .width
+            .saturating_sub(linennumbers_width[side])
+            .saturating_sub(config.keep_plus_minus_markers as usize)
+    };
+
+    LeftRight::new(line_width(PanelSide::Left), line_width(PanelSide::Right))
 }
 
 /// Emit a sequence of minus and plus lines in side-by-side mode.
