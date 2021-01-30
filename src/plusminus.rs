@@ -8,6 +8,7 @@ pub struct PlusMinus<T> {
     pub plus: T,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlusMinusIndex {
     Minus,
