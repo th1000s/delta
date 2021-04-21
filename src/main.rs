@@ -22,8 +22,10 @@ mod paint;
 mod parse_style;
 mod plusminus;
 mod style;
+
 mod subcommands;
-mod syntect_color;
+mod syntect_utils;
+
 mod tests;
 
 use std::io::{self, ErrorKind};
