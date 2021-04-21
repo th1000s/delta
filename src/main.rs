@@ -25,7 +25,7 @@ mod parse;
 mod parse_style;
 mod sample_diff;
 mod style;
-mod syntect_color;
+mod syntect_utils;
 mod tests;
 
 use std::io::{self, ErrorKind, Read, Write};

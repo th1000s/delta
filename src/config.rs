@@ -19,7 +19,7 @@ use crate::features::side_by_side;
 use crate::features::side_by_side_wrap;
 use crate::git_config::GitConfigEntry;
 use crate::style::{self, Style};
-use crate::syntect_color;
+use crate::syntect_utils;
 
 pub struct Config {
     pub available_terminal_width: usize,
@@ -217,7 +217,7 @@ impl From<cli::Opt> for Config {
             inspect_raw_lines: opt.computed.inspect_raw_lines,
             inline_hint_color: Some(SyntectStyle {
                 // TODO: color from theme?
-                foreground: syntect_color::syntect_color_from_ansi_name("blue").unwrap(),
+                foreground: syntect_utils::syntect_color_from_ansi_name("blue").unwrap(),
                 ..SyntectStyle::default()
             }),
             keep_plus_minus_markers: opt.keep_plus_minus_markers,
