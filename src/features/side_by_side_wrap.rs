@@ -13,6 +13,7 @@ use crate::style::Style;
 
 use super::{line_numbers::SideBySideLineWidth, side_by_side::available_line_width};
 
+/// See [`wrap_line`] for documentation.
 #[derive(Clone)]
 pub struct WrapConfig {
     pub wrap_symbol: String,
@@ -25,14 +26,20 @@ pub struct WrapConfig {
     pub inline_hint_syntect_style: SyntectStyle,
 }
 
-// Wrap the given `line` if it is longer than `line_width`. Wrap to at most
-// `wrap_config.max_lines` lines, then truncate again. Place `wrap_config.wrap_symbol`
-// at then end of wrapped lines. However if wrapping results in only one extra line
-// and if the width of the wrapped line is less than `wrap_config.use_wrap_right_permille`
-// right-align the second line and use `wrap_config.wrap_right_symbol`.
-//
-// The input `line` is expected to start with an (ultimately not printed) "+/-/ " prefix.
-// A prefix ("_") is also added to the start of wrapped lines.
+/// Wrap the given `line` if it is longer than `line_width`. Wrap to at most
+/// [Config::WrapConfig::max_lines](WrapConfig::max_lines) lines,
+/// then truncate again - but never truncate if it is `0`. Place
+/// [wrap_symbol](WrapConfig::wrap_symbol) at the end of wrapped lines.
+/// If wrapping results in only *one* extra line and if the width of the wrapped
+/// line is less than [use_wrap_right_permille](WrapConfig::use_wrap_right_permille)
+/// then right-align the second line and use the symbols
+/// [wrap_right_wrap_symbol](WrapConfig::wrap_right_wrap_symbol) and
+/// on the next line [wrap_right_prefix_symbol](WrapConfig::wrap_right_prefix_symbol).
+/// The inserted characters will follow the
+/// [inline_hint_syntect_style](WrapConfig::inline_hint_syntect_style).
+///
+/// The input `line` is expected to start with an (ultimately not printed) `+`, `-` or ` ` prefix.
+/// The prefix `_` is also added to the start of wrapped lines.
 pub fn wrap_line<'a, I, S>(
     config: &'a Config,
     line: I,
@@ -233,6 +240,9 @@ where
     (size_prev, wrapped.len())
 }
 
+/// Call [`wrap_line`] for the `syntax` and the `diff` lines if `wrapinfo` says
+/// a specific line was longer than `line_width`. Return an adjusted `alignment`
+/// with regard to the added wrapped lines.
 #[allow(clippy::comparison_chain, clippy::type_complexity)]
 pub fn wrap_plusminus_block<'c: 'a, 'a>(
     config: &'c Config,
@@ -395,13 +405,13 @@ pub fn wrap_plusminus_block<'c: 'a, 'a>(
 
                 let plus_minus = (minus_extended as isize) - (plus_extended as isize);
 
-                if plus_minus < 0 {
-                    for n in plus_start + plus_minus.abs() as usize..p_extended_to {
-                        new_alignment.push((None, Some(n)));
+                if plus_minus > 0 {
+                    for m in (m_extended_to as isize - plus_minus) as usize..m_extended_to {
+                        new_alignment.push((Some(m), None));
                     }
-                } else if plus_minus > 0 {
-                    for n in minus_start + plus_minus as usize..m_extended_to {
-                        new_alignment.push((Some(n), None));
+                } else if plus_minus < 0 {
+                    for p in (p_extended_to as isize + plus_minus) as usize..p_extended_to {
+                        new_alignment.push((None, Some(p)));
                     }
                 }
 
@@ -458,8 +468,8 @@ pub fn wrap_zero_block<'c: 'a, 'a>(
         )
     };
 
-    // Called with a single line (based on raw_line), so no need to use the 1-sized bool vector,
-    // if that changes the wrapping logic should be updated as well.
+    // Called with a single line, so no need to use the 1-sized bool vector.
+    // If that changes the wrapping logic should be updated as well.
     assert_eq!(diff_style_sections.len(), 1);
 
     let should_wrap = line_is_too_long(&raw_line, line_width);
@@ -808,6 +818,11 @@ index 223ca50..e69de29 100644
 +b = 0123456789 0123456789 0123456789 0123456789 0123456789
 ";
 
+    const HUNK_ALIGN_DIFF_HEADER: &str = "--- a\n+++ b\n@@ -1,1 +1,1 @@\n";
+    const HUNK_ALIGN_DIFF_SHORT: &str = ".........1.........2....\n";
+    const HUNK_ALIGN_DIFF_LONG: &str =
+        ".........1.........2.........3.........4.........5.........6\n";
+
     #[test]
     fn test_wrap_with_linefmt1() {
         let mut config = make_config_from_args(&[
@@ -891,5 +906,93 @@ index 223ca50..e69de29 100644
             "│    │ 89             │    │ 89",
         ];
         assert_eq!(lines, expected);
+    }
+
+    #[test]
+    fn test_aligment_2_3() {
+        let mut config = make_config_from_args(&["--side-by-side", "--width", "55"]);
+        config.wrap_config = TEST_WRAP_CFG.clone();
+
+        {
+            let output = run_delta(
+                &format!(
+                    "{}-{}+{}",
+                    HUNK_ALIGN_DIFF_HEADER, HUNK_ALIGN_DIFF_SHORT, HUNK_ALIGN_DIFF_LONG
+                ),
+                &config,
+            );
+            let output = strip_ansi_codes(&output);
+            let lines: Vec<_> = output.lines().skip(7).collect();
+            let expected = vec![
+                "│ 1  │.........1.........2<│ 1  │.........1.........2+",
+                "│    │                >....│    │.........3.........4+",
+                "│    │                     │    │.........5.........6",
+            ];
+
+            assert_eq!(lines, expected);
+        }
+
+        {
+            let output = run_delta(
+                &format!(
+                    "{}-{}+{}",
+                    HUNK_ALIGN_DIFF_HEADER, HUNK_ALIGN_DIFF_LONG, HUNK_ALIGN_DIFF_SHORT
+                ),
+                &config,
+            );
+            let output = strip_ansi_codes(&output);
+            let lines: Vec<_> = output.lines().skip(7).collect();
+            let expected = vec![
+                "│ 1  │.........1.........2+│ 1  │.........1.........2<",
+                "│    │.........3.........4+│    │                >....",
+                "│    │.........5.........6 │    │",
+            ];
+
+            assert_eq!(lines, expected);
+        }
+    }
+
+    #[test]
+    fn test_aligment_1_3() {
+        let mut config = make_config_from_args(&["--side-by-side", "--width", "60"]);
+        config.wrap_config = TEST_WRAP_CFG.clone();
+
+        {
+            let output = run_delta(
+                &format!(
+                    "{}-{}+{}",
+                    HUNK_ALIGN_DIFF_HEADER, HUNK_ALIGN_DIFF_SHORT, HUNK_ALIGN_DIFF_LONG
+                ),
+                &config,
+            );
+            let output = strip_ansi_codes(&output);
+            let lines: Vec<_> = output.lines().skip(7).collect();
+            let expected = vec![
+                "│ 1  │.........1.........2....│ 1  │.........1.........2...+",
+                "│    │                        │    │......3.........4......+",
+                "│    │                        │    │...5.........6",
+            ];
+
+            assert_eq!(lines, expected);
+        }
+
+        {
+            let output = run_delta(
+                &format!(
+                    "{}-{}+{}",
+                    HUNK_ALIGN_DIFF_HEADER, HUNK_ALIGN_DIFF_LONG, HUNK_ALIGN_DIFF_SHORT
+                ),
+                &config,
+            );
+            let output = strip_ansi_codes(&output);
+            let lines: Vec<_> = output.lines().skip(7).collect();
+            let expected = vec![
+                "│ 1  │.........1.........2...+│ 1  │.........1.........2....",
+                "│    │......3.........4......+│    │",
+                "│    │...5.........6          │    │",
+            ];
+
+            assert_eq!(lines, expected);
+        }
     }
 }
