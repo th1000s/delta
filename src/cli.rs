@@ -7,11 +7,24 @@ use structopt::clap::AppSettings::{ColorAlways, ColoredHelp, DeriveDisplayOrder}
 use structopt::{clap, StructOpt};
 use syntect::highlighting::Theme as SyntaxTheme;
 use syntect::parsing::SyntaxSet;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::bat_utils::assets::HighlightingAssets;
 use crate::bat_utils::output::PagingMode;
 use crate::git_config::{GitConfig, GitConfigEntry};
 use crate::options;
+
+pub const INLINE_SYMBOL_WIDTH_1: usize = 1;
+
+fn ensure_display_width(arg: &str) -> Result<String, String> {
+    match arg.grapheme_indices(true).count() {
+        INLINE_SYMBOL_WIDTH_1 => Ok(arg.into()),
+        width => Err(format!(
+            "Display width of \"{}\" must be {} but is {}",
+            arg, INLINE_SYMBOL_WIDTH_1, width
+        )),
+    }
+}
 
 #[derive(StructOpt, Clone, Default)]
 #[structopt(
@@ -467,7 +480,7 @@ pub struct Opt {
     pub side_by_side_wrap_max_lines: usize,
 
     /// Symbol indicating that a line has been wrapped in side-by-side mode.
-    #[structopt(long = "side-by-side-wrap-symbol", default_value = "↵")]
+    #[structopt(long = "side-by-side-wrap-symbol", default_value = "↵", parse(try_from_str = ensure_display_width))]
     pub side_by_side_wrap_symbol: String,
 
     /// Threshold for right-aligning wrapped content in side-by-side mode. If
@@ -479,11 +492,11 @@ pub struct Opt {
 
     /// Symbol indicating that a line has been wrapped and that the subsequent
     /// content is displayed right-aligned.
-    #[structopt(long = "side-by-side-wrap-right-wrap-symbol", default_value = "↴")]
+    #[structopt(long = "side-by-side-wrap-right-wrap-symbol", default_value = "↴", parse(try_from_str = ensure_display_width))]
     pub side_by_side_wrap_right_wrap_symbol: String,
 
     /// Symbol displayed in front of right-aligned wrapped content.
-    #[structopt(long = "side-by-side-wrap-right-prefix-symbol", default_value = "…")]
+    #[structopt(long = "side-by-side-wrap-right-prefix-symbol", default_value = "…", parse(try_from_str = ensure_display_width))]
     pub side_by_side_wrap_right_prefix_symbol: String,
 
     #[structopt(long = "file-modified-label", default_value = "")]

@@ -1,6 +1,8 @@
 use syntect::highlighting::Style as SyntectStyle;
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::cli::INLINE_SYMBOL_WIDTH_1;
+
 use crate::config::Config;
 use crate::delta::State;
 use crate::features::line_numbers;
@@ -55,7 +57,7 @@ where
     //  - is added to the beginning of wrapped lines so the wrapped lines also have
     //    a prefix (which is not printed).
     const LINEPREFIX: &str = "_";
-    static_assertions::const_assert_eq!(LINEPREFIX.len(), 1); // must be a 1-byte char
+    static_assertions::const_assert_eq!(LINEPREFIX.len(), INLINE_SYMBOL_WIDTH_1);
 
     let max_len = line_width + LINEPREFIX.len();
 
@@ -72,10 +74,10 @@ where
 
     let line_limit_reached = |result: &Vec<_>| {
         // If only the wrap symbol and no extra text fits then wrapping is not possible.
-        let max_lines = if line_width > 1 {
-            wrap_config.max_lines
-        } else {
+        let max_lines = if line_width <= INLINE_SYMBOL_WIDTH_1 {
             1
+        } else {
+            wrap_config.max_lines
         };
 
         max_lines > 0 && result.len() + 1 >= max_lines
@@ -148,19 +150,14 @@ where
     }
 
     // Right-align wrapped line:
-    // Done if wrapping adds exactly one line and it is less than the
-    // given permille of panel width wide. Also change the wrap symbol at the
-    // end of the previous (first) line.
+    // Done if wrapping adds exactly one line and this line is less than the given
+    // permille wide. Also change the wrap symbol at the end of the previous (first) line.
     if result.len() == 1 && !curr_line.is_empty() {
         let current_permille = (curr_len * 1000) / max_len;
 
-        // &config.wrap_config.right_align_symbol length
-        const RIGHT_ALIGN_SYMBOL_LEN: usize = 1;
-        let pad_len = max_len.saturating_sub(curr_len - LINEPREFIX.len() + RIGHT_ALIGN_SYMBOL_LEN);
+        let pad_len = max_len.saturating_sub(curr_len - LINEPREFIX.len() + INLINE_SYMBOL_WIDTH_1);
 
-        if wrap_config.use_wrap_right_permille > current_permille
-            && result.len() == 1
-            && pad_len > RIGHT_ALIGN_SYMBOL_LEN
+        if wrap_config.use_wrap_right_permille > current_permille && pad_len > INLINE_SYMBOL_WIDTH_1
         {
             const SPACES: &str = "        ";
 
