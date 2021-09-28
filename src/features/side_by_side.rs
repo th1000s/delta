@@ -11,9 +11,9 @@ use crate::delta::State;
 use crate::features::line_numbers;
 use crate::features::side_by_side_wrap;
 use crate::features::OptionValueFunction;
+use crate::minusplus::*;
 use crate::paint::Painter;
 use crate::paint::{BgFillMethod, BgShouldFill};
-use crate::plusminus::*;
 use crate::style::Style;
 
 pub fn make_feature() -> Vec<(String, OptionValueFunction)> {
@@ -35,8 +35,8 @@ pub struct Panel {
     pub offset: usize,
 }
 
-// Same as plusminus::PlusMinusIndex but with Left/Right instead
-// of Minus/Plus enum names. Only used in a side-by-side context.
+/// Same as [`plusminus::MinusPlusIndex`](crate::minusplus::MinusPlusIndex) but with Left/Right instead
+/// of Plus/Minus enum names. Only used in a side-by-side context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelSide {
     Left,
@@ -45,7 +45,7 @@ pub enum PanelSide {
 
 use PanelSide::*;
 
-impl<T> Index<PanelSide> for PlusMinus<T> {
+impl<T> Index<PanelSide> for MinusPlus<T> {
     type Output = T;
     fn index(&self, side: PanelSide) -> &Self::Output {
         match side {
@@ -55,7 +55,7 @@ impl<T> Index<PanelSide> for PlusMinus<T> {
     }
 }
 
-impl<T> IndexMut<PanelSide> for PlusMinus<T> {
+impl<T> IndexMut<PanelSide> for MinusPlus<T> {
     fn index_mut(&mut self, side: PanelSide) -> &mut Self::Output {
         match side {
             PanelSide::Left => &mut self.minus,
@@ -64,11 +64,12 @@ impl<T> IndexMut<PanelSide> for PlusMinus<T> {
     }
 }
 
-type LeftRight<T> = PlusMinus<T>;
+type LeftRight<T> = MinusPlus<T>;
 
 pub type SideBySideData = LeftRight<Panel>;
 
 impl SideBySideData {
+    /// Create a [`LeftRight<Panel>`](LeftRight<Panel>) named [`SideBySideData`].
     pub fn new_sbs(decorations_width: &cli::Width, available_terminal_width: &usize) -> Self {
         let panel_width = match decorations_width {
             cli::Width::Fixed(w) => w / 2,
