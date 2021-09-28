@@ -1,25 +1,25 @@
 use std::ops::{Index, IndexMut};
 
-// Struct to represent data related to removed/minus and added/plus lines
-// which can be indexed with PlusMinusIndex::{Minus, Plus}.
+/// Represent data related to removed/minus and added/plus lines which
+/// can be indexed with [`MinusPlusIndex::{Plus`](MinusPlusIndex::Plus)`,`[`Minus}`](MinusPlusIndex::Minus).
 #[derive(Debug, PartialEq, Eq)]
-pub struct PlusMinus<T> {
+pub struct MinusPlus<T> {
     pub minus: T,
     pub plus: T,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlusMinusIndex {
+pub enum MinusPlusIndex {
     Minus,
     Plus,
 }
 
-pub use PlusMinusIndex::*;
+pub use MinusPlusIndex::*;
 
-impl<T> Index<PlusMinusIndex> for PlusMinus<T> {
+impl<T> Index<MinusPlusIndex> for MinusPlus<T> {
     type Output = T;
-    fn index(&self, side: PlusMinusIndex) -> &Self::Output {
+    fn index(&self, side: MinusPlusIndex) -> &Self::Output {
         match side {
             Minus => &self.minus,
             Plus => &self.plus,
@@ -27,8 +27,8 @@ impl<T> Index<PlusMinusIndex> for PlusMinus<T> {
     }
 }
 
-impl<T> IndexMut<PlusMinusIndex> for PlusMinus<T> {
-    fn index_mut(&mut self, side: PlusMinusIndex) -> &mut Self::Output {
+impl<T> IndexMut<MinusPlusIndex> for MinusPlus<T> {
+    fn index_mut(&mut self, side: MinusPlusIndex) -> &mut Self::Output {
         match side {
             Minus => &mut self.minus,
             Plus => &mut self.plus,
@@ -36,13 +36,13 @@ impl<T> IndexMut<PlusMinusIndex> for PlusMinus<T> {
     }
 }
 
-impl<T> PlusMinus<T> {
+impl<T> MinusPlus<T> {
     pub fn new(minus: T, plus: T) -> Self {
-        PlusMinus { minus, plus }
+        MinusPlus { minus, plus }
     }
 }
 
-impl<T: Default> Default for PlusMinus<T> {
+impl<T: Default> Default for MinusPlus<T> {
     fn default() -> Self {
         Self {
             minus: T::default(),
