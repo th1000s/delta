@@ -7,6 +7,7 @@ use structopt::clap;
 use syntect::highlighting::Style as SyntectStyle;
 use syntect::highlighting::Theme as SyntaxTheme;
 use syntect::parsing::SyntaxSet;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ansi;
 use crate::bat_utils::output::PagingMode;
@@ -14,6 +15,7 @@ use crate::cli;
 use crate::color;
 use crate::delta::State;
 use crate::env;
+use crate::fatal;
 use crate::features::navigate;
 use crate::features::side_by_side;
 use crate::features::side_by_side_wrap;
@@ -21,6 +23,35 @@ use crate::git_config::{GitConfig, GitConfigEntry};
 use crate::paint::BgFillMethod;
 use crate::style::{self, Style};
 use crate::syntect_utils::FromDeltaStyle;
+
+pub const INLINE_SYMBOL_WIDTH_1: usize = 1;
+
+fn remove_percent_suffix(arg: &str) -> &str {
+    match &arg.strip_suffix('%') {
+        Some(s) => s,
+        None => arg,
+    }
+}
+
+fn ensure_display_width_1(what: &str, arg: String) -> String {
+    match arg.grapheme_indices(true).count() {
+        INLINE_SYMBOL_WIDTH_1 => arg,
+        width => fatal(format!(
+            "Invalid value for {}, display width of \"{}\" must be {} but is {}",
+            what, arg, INLINE_SYMBOL_WIDTH_1, width
+        )),
+    }
+}
+
+fn adapt_wrap_max_lines_argument(arg: String) -> usize {
+    if arg == "∞" || arg == "unlimited" || arg.starts_with("inf") {
+        0
+    } else {
+        arg.parse::<usize>()
+            .unwrap_or_else(|err| fatal(format!("Invalid wrap-max-lines argument: {}", err)))
+            + 1
+    }
+}
 
 pub struct Config {
     pub available_terminal_width: usize,
@@ -221,6 +252,8 @@ impl From<cli::Opt> for Config {
             None
         };
 
+        let wrap_max_lines_plus1 = adapt_wrap_max_lines_argument(opt.wrap_max_lines);
+
         Self {
             available_terminal_width: opt.computed.available_terminal_width,
             background_color_extends_to_terminal_width: opt
@@ -287,7 +320,7 @@ impl From<cli::Opt> for Config {
             line_buffer_size: opt.line_buffer_size,
             max_line_distance: opt.max_line_distance,
             max_line_distance_for_naively_paired_lines,
-            max_line_length: match (opt.side_by_side, opt.wrap_max_lines) {
+            max_line_length: match (opt.side_by_side, wrap_max_lines_plus1) {
                 (false, _) | (true, 1) => opt.max_line_length,
                 // Ensure there is enough text to wrap, either don't truncate the input at all (0)
                 // or ensure there is enough for the requested number of lines.
@@ -334,14 +367,29 @@ impl From<cli::Opt> for Config {
             true_color: opt.computed.true_color,
             truncation_symbol: format!("{}→{}", ansi::ANSI_SGR_REVERSE, ansi::ANSI_SGR_RESET),
             wrap_config: side_by_side_wrap::WrapConfig {
-                left_symbol: opt.wrap_left_symbol,
-                right_symbol: opt.wrap_right_symbol,
-                right_prefix_symbol: opt.wrap_right_prefix_symbol,
+                left_symbol: ensure_display_width_1("wrap-left-symbol", opt.wrap_left_symbol),
+                right_symbol: ensure_display_width_1("wrap-right-symbol", opt.wrap_right_symbol),
+                right_prefix_symbol: ensure_display_width_1(
+                    "wrap-right-prefix-symbol",
+                    opt.wrap_right_prefix_symbol,
+                ),
                 use_wrap_right_permille: {
-                    let percent = opt.wrap_right_percent.clamp(0.0, 100.0);
-                    (percent * 10.0).round() as usize
+                    let arg = &opt.wrap_right_percent;
+                    let percent = remove_percent_suffix(arg)
+                        .parse::<f64>()
+                        .unwrap_or_else(|err| {
+                            fatal(format!(
+                                "Could not parse wrap-right-percent argument {}: {}.",
+                                &arg, err
+                            ))
+                        });
+                    if percent.is_finite() && percent > 0.0 && percent < 100.0 {
+                        (percent * 10.0).round() as usize
+                    } else {
+                        fatal("Invalid value for wrap-right-percent, not between 0 and 100.")
+                    }
                 },
-                max_lines: opt.wrap_max_lines,
+                max_lines: wrap_max_lines_plus1,
                 inline_hint_syntect_style: SyntectStyle::from_delta_style(inline_hint_style),
             },
             whitespace_error_style,

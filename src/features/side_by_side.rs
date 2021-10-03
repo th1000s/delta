@@ -16,6 +16,8 @@ use crate::paint::Painter;
 use crate::paint::{BgFillMethod, BgShouldFill};
 use crate::style::Style;
 
+pub type LineSegments<'a, S> = Vec<(S, &'a str)>;
+
 pub fn make_feature() -> Vec<(String, OptionValueFunction)> {
     builtin_feature!([
         (
@@ -141,9 +143,9 @@ pub fn has_long_lines(
 
 /// Emit a sequence of minus and plus lines in side-by-side mode.
 #[allow(clippy::too_many_arguments)]
-pub fn paint_minus_and_plus_lines_side_by_side(
-    syntax_left_right: LeftRight<Vec<Vec<(SyntectStyle, &str)>>>,
-    diff_left_right: LeftRight<Vec<Vec<(Style, &str)>>>,
+pub fn paint_minus_and_plus_lines_side_by_side<'a>(
+    syntax_left_right: LeftRight<Vec<LineSegments<'a, SyntectStyle>>>,
+    diff_left_right: LeftRight<Vec<LineSegments<'a, Style>>>,
     states_left_right: LeftRight<Vec<State>>,
     line_alignment: Vec<(Option<usize>, Option<usize>)>,
     output_buffer: &mut String,
@@ -181,10 +183,10 @@ pub fn paint_minus_and_plus_lines_side_by_side(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn paint_zero_lines_side_by_side(
+pub fn paint_zero_lines_side_by_side<'a>(
     raw_line: &str,
-    syntax_style_sections: Vec<Vec<(SyntectStyle, &str)>>,
-    diff_style_sections: Vec<Vec<(Style, &str)>>,
+    syntax_style_sections: Vec<LineSegments<'a, SyntectStyle>>,
+    diff_style_sections: Vec<LineSegments<'a, Style>>,
     output_buffer: &mut String,
     config: &Config,
     line_numbers_data: &mut Option<&mut line_numbers::LineNumbersData>,
@@ -246,8 +248,8 @@ pub fn paint_zero_lines_side_by_side(
 #[allow(clippy::too_many_arguments)]
 fn paint_left_panel_minus_line<'a>(
     line_index: Option<usize>,
-    syntax_style_sections: &[Vec<(SyntectStyle, &str)>],
-    diff_style_sections: &[Vec<(Style, &str)>],
+    syntax_style_sections: &[LineSegments<'a, SyntectStyle>],
+    diff_style_sections: &[LineSegments<'a, Style>],
     state: &'a State,
     line_numbers_data: &mut Option<&mut line_numbers::LineNumbersData>,
     background_color_extends_to_terminal_width: BgShouldFill,
@@ -279,8 +281,8 @@ fn paint_left_panel_minus_line<'a>(
 #[allow(clippy::too_many_arguments)]
 fn paint_right_panel_plus_line<'a>(
     line_index: Option<usize>,
-    syntax_style_sections: &[Vec<(SyntectStyle, &str)>],
-    diff_style_sections: &[Vec<(Style, &str)>],
+    syntax_style_sections: &[LineSegments<'a, SyntectStyle>],
+    diff_style_sections: &[LineSegments<'a, Style>],
     state: &'a State,
     line_numbers_data: &mut Option<&mut line_numbers::LineNumbersData>,
     background_color_extends_to_terminal_width: BgShouldFill,
@@ -310,10 +312,10 @@ fn paint_right_panel_plus_line<'a>(
     panel_line
 }
 
-fn get_right_fill_style_for_panel(
+fn get_right_fill_style_for_panel<'a>(
     line_is_empty: bool,
     line_index: Option<usize>,
-    diff_style_sections: &[Vec<(Style, &str)>],
+    diff_style_sections: &[LineSegments<'a, Style>],
     state: &State,
     panel_side: PanelSide,
     background_color_extends_to_terminal_width: BgShouldFill,
@@ -369,10 +371,10 @@ fn get_right_fill_style_for_panel(
 // and then only emit the right field (which has a None number, i.e. blank). However, it will also
 // increment the minus line number, so we need to knock that back down.
 #[allow(clippy::too_many_arguments)]
-fn paint_minus_or_plus_panel_line(
+fn paint_minus_or_plus_panel_line<'a>(
     line_index: Option<usize>,
-    syntax_style_sections: &[Vec<(SyntectStyle, &str)>],
-    diff_style_sections: &[Vec<(Style, &str)>],
+    syntax_style_sections: &[LineSegments<'a, SyntectStyle>],
+    diff_style_sections: &[LineSegments<'a, Style>],
     state: &State,
     line_numbers_data: &mut Option<&mut line_numbers::LineNumbersData>,
     panel_side: PanelSide,
@@ -440,11 +442,11 @@ fn paint_minus_or_plus_panel_line(
 /// done with spaces. The right panel can be filled with spaces or using ANSI sequences
 /// instructing the terminal emulator to fill the background color rightwards.
 #[allow(clippy::too_many_arguments, clippy::comparison_chain)]
-fn pad_panel_line_to_width(
+fn pad_panel_line_to_width<'a>(
     panel_line: &mut String,
     panel_line_is_empty: bool,
     line_index: Option<usize>,
-    diff_style_sections: &[Vec<(Style, &str)>],
+    diff_style_sections: &[LineSegments<'a, Style>],
     state: &State,
     panel_side: PanelSide,
     background_color_extends_to_terminal_width: BgShouldFill,
@@ -510,8 +512,7 @@ pub mod tests {
 
     #[test]
     fn test_two_minus_lines() {
-        let config =
-            make_config_from_args(&["--side-by-side", "--wrap-max-lines", "1", "--width", "40"]);
+        let config = make_config_from_args(&["--side-by-side", "--width", "40"]);
         let output = run_delta(TWO_MINUS_LINES_DIFF, &config);
         let mut lines = output.lines().skip(crate::config::HEADER_LEN);
         let (line_1, line_2) = (lines.next().unwrap(), lines.next().unwrap());
@@ -524,7 +525,7 @@ pub mod tests {
         let mut config = make_config_from_args(&[
             "--side-by-side",
             "--wrap-max-lines",
-            "1",
+            "0",
             "--width",
             "28",
             "--line-fill-method=spaces",
@@ -539,8 +540,7 @@ pub mod tests {
 
     #[test]
     fn test_two_plus_lines() {
-        let config =
-            make_config_from_args(&["--side-by-side", "--wrap-max-lines", "1", "--width", "40"]);
+        let config = make_config_from_args(&["--side-by-side", "--width", "40"]);
         let output = run_delta(TWO_PLUS_LINES_DIFF, &config);
         let mut lines = output.lines().skip(crate::config::HEADER_LEN);
         let (line_1, line_2) = (lines.next().unwrap(), lines.next().unwrap());
@@ -554,12 +554,13 @@ pub mod tests {
         let mut config = make_config_from_args(&[
             "--side-by-side",
             "--wrap-max-lines",
-            "1",
+            "0",
             "--width",
             "30",
             "--line-fill-method=spaces",
         ]);
         config.truncation_symbol = ">".into();
+
         let output = run_delta(TWO_PLUS_LINES_DIFF, &config);
         let mut lines = output.lines().skip(crate::config::HEADER_LEN);
         let (line_1, line_2) = (lines.next().unwrap(), lines.next().unwrap());
@@ -569,9 +570,7 @@ pub mod tests {
 
     #[test]
     fn test_two_plus_lines_exact_fit() {
-        let mut config =
-            make_config_from_args(&["--side-by-side", "--wrap-max-lines", "1", "--width", "32"]);
-        config.truncation_symbol = ">".into();
+        let config = make_config_from_args(&["--side-by-side", "--width", "32"]);
         let output = run_delta(TWO_PLUS_LINES_DIFF, &config);
         let mut lines = output.lines().skip(crate::config::HEADER_LEN);
         let (line_1, line_2) = (lines.next().unwrap(), lines.next().unwrap());
@@ -581,8 +580,7 @@ pub mod tests {
 
     #[test]
     fn test_one_minus_one_plus_line() {
-        let config =
-            make_config_from_args(&["--side-by-side", "--wrap-max-lines", "1", "--width", "40"]);
+        let config = make_config_from_args(&["--side-by-side", "--width", "40"]);
         let output = run_delta(ONE_MINUS_ONE_PLUS_LINE_DIFF, &config);
         let output = strip_ansi_codes(&output);
         let mut lines = output.lines().skip(crate::config::HEADER_LEN);

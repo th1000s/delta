@@ -11,9 +11,7 @@ use crate::config::{self, delta_unreachable};
 use crate::delta::State;
 use crate::edits;
 use crate::features::line_numbers;
-use crate::features::side_by_side;
-use crate::features::side_by_side::available_line_width;
-use crate::features::side_by_side::PanelSide;
+use crate::features::side_by_side::{self, available_line_width, LineSegments, PanelSide};
 use crate::features::side_by_side_wrap;
 use crate::minusplus::*;
 use crate::paint::superimpose_style_sections::superimpose_style_sections;
@@ -326,10 +324,10 @@ impl<'a> Painter<'a> {
     /// Superimpose background styles and foreground syntax
     /// highlighting styles, and write colored lines to output buffer.
     #[allow(clippy::too_many_arguments)]
-    pub fn paint_lines(
-        syntax_style_sections: Vec<Vec<(SyntectStyle, &str)>>,
-        diff_style_sections: Vec<Vec<(Style, &str)>>,
-        states: impl Iterator<Item = &'a State>,
+    pub fn paint_lines<'b>(
+        syntax_style_sections: Vec<LineSegments<'b, SyntectStyle>>,
+        diff_style_sections: Vec<LineSegments<'b, Style>>,
+        states: impl Iterator<Item = &'b State>,
         output_buffer: &mut String,
         config: &config::Config,
         line_numbers_data: &mut Option<&mut line_numbers::LineNumbersData>,
@@ -621,7 +619,7 @@ impl<'a> Painter<'a> {
         state: &State,
         highlighter: Option<&mut HighlightLines>,
         config: &config::Config,
-    ) -> Vec<Vec<(SyntectStyle, &'s str)>> {
+    ) -> Vec<LineSegments<'s, SyntectStyle>> {
         let mut line_sections = Vec::new();
         match (
             highlighter,
@@ -653,8 +651,8 @@ impl<'a> Painter<'a> {
         plus_lines: &'b [(String, State)],
         config: &config::Config,
     ) -> (
-        Vec<Vec<(Style, &'b str)>>,
-        Vec<Vec<(Style, &'b str)>>,
+        Vec<LineSegments<'b, Style>>,
+        Vec<LineSegments<'b, Style>>,
         Vec<(Option<usize>, Option<usize>)>,
     ) {
         let (minus_lines, minus_styles): (Vec<&str>, Vec<Style>) = minus_lines
@@ -705,7 +703,7 @@ impl<'a> Painter<'a> {
     /// 2. If the line constitutes a whitespace error, then the whitespace error style
     ///    should be applied to the added material.
     fn update_styles(
-        style_sections: &mut Vec<Vec<(Style, &str)>>,
+        style_sections: &mut Vec<LineSegments<'_, Style>>,
         whitespace_error_style: Option<Style>,
         non_emph_style: Option<Style>,
     ) {

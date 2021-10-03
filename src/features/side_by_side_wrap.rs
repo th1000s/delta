@@ -1,7 +1,7 @@
 use syntect::highlighting::Style as SyntectStyle;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::cli::INLINE_SYMBOL_WIDTH_1;
+use crate::config::INLINE_SYMBOL_WIDTH_1;
 
 use crate::config::Config;
 use crate::delta::State;
@@ -9,6 +9,7 @@ use crate::features::line_numbers;
 use crate::features::line_numbers::SideBySideLineWidth;
 use crate::features::side_by_side::available_line_width;
 use crate::features::side_by_side::line_is_too_long;
+use crate::features::side_by_side::LineSegments;
 use crate::features::side_by_side::PanelSide::*;
 use crate::minusplus::*;
 use crate::style::Style;
@@ -22,6 +23,8 @@ pub struct WrapConfig {
     // In fractions of 1000 so that a >100 wide panel can
     // still be configured down to a single character.
     pub use_wrap_right_permille: usize,
+    // This value is --wrap-max-lines + 1, and unlimited is 0, see
+    // adapt_wrap_max_lines_argument()
     pub max_lines: usize,
     pub inline_hint_syntect_style: SyntectStyle,
 }
@@ -46,7 +49,7 @@ pub fn wrap_line<'a, I, S>(
     line_width: usize,
     fill_style: &S,
     inline_hint_style: &Option<S>,
-) -> Vec<Vec<(S, &'a str)>>
+) -> Vec<LineSegments<'a, S>>
 where
     I: IntoIterator<Item = (S, &'a str)> + std::fmt::Debug,
     <I as IntoIterator>::IntoIter: DoubleEndedIterator,
@@ -71,7 +74,7 @@ where
     // The current line being assembled from the input to fit exactly into the given width.
     // A somewhat leaky abstraction as the fields are also accessed directly.
     struct CurrLine<'a, S: Default> {
-        line_segments: Vec<(S, &'a str)>,
+        line_segments: LineSegments<'a, S>,
         len: usize,
     }
     impl<'a, S: Default> CurrLine<'a, S> {
@@ -153,7 +156,7 @@ where
             }
         } else if new_len == max_len + 1 && stack.is_empty() {
             // If the one overhanging char is '\n' then keep it on the current line.
-            if !text.is_empty() && *text.as_bytes().last().unwrap() == b'\n' {
+            if text.ends_with('\n') {
                 // Do not count the included '\n': - 1
                 curr_line.push_and_set_len((style, text), new_len - 1);
                 false
@@ -200,7 +203,8 @@ where
 
         if wrap_config.use_wrap_right_permille > current_permille && pad_len > INLINE_SYMBOL_WIDTH_1
         {
-            const SPACES: &str = "        ";
+            // The inserted spaces which align a line to the right point into this string.
+            const SPACES: &str = "                                                                ";
 
             match result.last_mut() {
                 Some(ref mut vec) if !vec.is_empty() => {
@@ -235,6 +239,8 @@ where
         result.push(curr_line.line_segments);
     }
 
+    // Anything that is left will be added to the (last) line. If this is too long it will
+    // be truncated later.
     if !stack.is_empty() {
         if result.is_empty() {
             result.push(Vec::new());
@@ -249,8 +255,8 @@ where
 
 fn wrap_if_too_long<'a, S>(
     config: &'a Config,
-    wrapped: &mut Vec<Vec<(S, &'a str)>>,
-    input_vec: Vec<(S, &'a str)>,
+    wrapped: &mut Vec<LineSegments<'a, S>>,
+    input_vec: LineSegments<'a, S>,
     must_wrap: bool,
     line_width: usize,
     fill_style: &S,
@@ -282,16 +288,16 @@ where
 #[allow(clippy::comparison_chain, clippy::type_complexity)]
 pub fn wrap_minusplus_block<'c: 'a, 'a>(
     config: &'c Config,
-    syntax: MinusPlus<Vec<Vec<(SyntectStyle, &'a str)>>>,
-    diff: MinusPlus<Vec<Vec<(Style, &'a str)>>>,
+    syntax: MinusPlus<Vec<LineSegments<'a, SyntectStyle>>>,
+    diff: MinusPlus<Vec<LineSegments<'a, Style>>>,
     alignment: &[(Option<usize>, Option<usize>)],
     line_width: &SideBySideLineWidth,
     wrapinfo: &'a MinusPlus<Vec<bool>>,
 ) -> (
     Vec<(Option<usize>, Option<usize>)>,
     MinusPlus<Vec<State>>,
-    MinusPlus<Vec<Vec<(SyntectStyle, &'a str)>>>,
-    MinusPlus<Vec<Vec<(Style, &'a str)>>>,
+    MinusPlus<Vec<LineSegments<'a, SyntectStyle>>>,
+    MinusPlus<Vec<LineSegments<'a, Style>>>,
 ) {
     let mut new_alignment = Vec::new();
     let mut new_states = MinusPlus::<Vec<State>>::default();
@@ -311,8 +317,8 @@ pub fn wrap_minusplus_block<'c: 'a, 'a>(
     #[allow(clippy::too_many_arguments)]
     pub fn wrap_syntax_and_diff<'a, ItSyn, ItDiff, ItWrap>(
         config: &'a Config,
-        wrapped_syntax: &mut Vec<Vec<(SyntectStyle, &'a str)>>,
-        wrapped_diff: &mut Vec<Vec<(Style, &'a str)>>,
+        wrapped_syntax: &mut Vec<LineSegments<'a, SyntectStyle>>,
+        wrapped_diff: &mut Vec<LineSegments<'a, Style>>,
         syntax_iter: &mut ItSyn,
         diff_iter: &mut ItDiff,
         wrapinfo_iter: &mut ItWrap,
@@ -321,8 +327,8 @@ pub fn wrap_minusplus_block<'c: 'a, 'a>(
         errhint: &'a str,
     ) -> (usize, usize)
     where
-        ItSyn: Iterator<Item = Vec<(SyntectStyle, &'a str)>>,
-        ItDiff: Iterator<Item = Vec<(Style, &'a str)>>,
+        ItSyn: Iterator<Item = LineSegments<'a, SyntectStyle>>,
+        ItDiff: Iterator<Item = LineSegments<'a, Style>>,
         ItWrap: Iterator<Item = &'a bool>,
     {
         let must_wrap = *wrapinfo_iter
@@ -483,13 +489,13 @@ pub fn wrap_zero_block<'c: 'a, 'a>(
     config: &'c Config,
     raw_line: &str,
     mut states: Vec<State>,
-    syntax_style_sections: Vec<Vec<(SyntectStyle, &'a str)>>,
-    diff_style_sections: Vec<Vec<(Style, &'a str)>>,
+    syntax_style_sections: Vec<LineSegments<'a, SyntectStyle>>,
+    diff_style_sections: Vec<LineSegments<'a, Style>>,
     line_numbers_data: &Option<&mut line_numbers::LineNumbersData>,
 ) -> (
     Vec<State>,
-    Vec<Vec<(SyntectStyle, &'a str)>>,
-    Vec<Vec<(Style, &'a str)>>,
+    Vec<LineSegments<'a, SyntectStyle>>,
+    Vec<LineSegments<'a, Style>>,
 ) {
     // The width is the minimum of the left/right side. The panels should be equally sized,
     // but in rare cases the remaining panel width might differ due to the space the line
@@ -559,8 +565,8 @@ mod tests {
     use super::wrap_line;
     use super::WrapConfig;
     use crate::ansi::strip_ansi_codes;
-    use crate::cli::Opt;
     use crate::config::Config;
+    use crate::features::side_by_side::LineSegments;
     use crate::style::Style;
     use crate::tests::integration_test_utils::{make_config_from_args, run_delta};
 
@@ -596,7 +602,7 @@ mod tests {
             "--wrap-right-prefix-symbol",
             RA,
             "--wrap-max-lines",
-            "5",
+            "4",
             "--wrap-right-percent",
             "37.0",
         ];
@@ -614,12 +620,12 @@ mod tests {
     }
 
     fn mk_wrap_cfg(wrap_cfg: &WrapConfig) -> Config {
-        let mut cfg: Config = Config::from(Opt::default());
+        let mut cfg: Config = Config::from(make_config_from_args(&[]));
         cfg.wrap_config = wrap_cfg.clone();
         cfg
     }
 
-    fn wrap_test<'a, I, S>(cfg: &'a Config, line: I, line_width: usize) -> Vec<Vec<(S, &'a str)>>
+    fn wrap_test<'a, I, S>(cfg: &'a Config, line: I, line_width: usize) -> Vec<LineSegments<'a, S>>
     where
         I: IntoIterator<Item = (S, &'a str)> + std::fmt::Debug,
         <I as IntoIterator>::IntoIter: DoubleEndedIterator,
@@ -680,13 +686,7 @@ mod tests {
         assert_eq!(lines[0].last().unwrap().1, WR);
         assert_eq!(
             lines[1],
-            vec![
-                (*SD, "_"),
-                (*SD, "        "),
-                (*SD, " "),
-                (*SD, ">"),
-                (*S1, "ab")
-            ]
+            vec![(*SD, "_"), (*SD, "         "), (*SD, ">"), (*S1, "ab")]
         );
     }
 
@@ -700,11 +700,11 @@ mod tests {
 
             let lines = wrap_test(&cfg, line.clone(), 6);
             assert_eq!(
-                dbg!(lines),
-                dbg!(vec![
+                lines,
+                vec![
                     vec![(*S1, "_012"), (*S2, "34"), (*SD, WR)],
                     vec![(*SD, "_"), (*SD, "    "), (*SD, RA), (*S2, "56")]
-                ])
+                ]
             );
         }
 
@@ -716,18 +716,18 @@ mod tests {
 
             let lines = wrap_test(&cfg_no_align_right, line, 6);
             assert_eq!(
-                dbg!(lines),
-                dbg!(vec![
+                lines,
+                vec![
                     vec![(*S1, "_012"), (*S2, "34"), (*SD, W)],
                     vec![(*SD, "_"), (*S2, "56")]
-                ])
+                ]
             );
         }
     }
 
     #[test]
-    fn test_wrap_line_newlines() {
-        fn mk_input(len: usize) -> Vec<(Style, &'static str)> {
+    fn test_wrap_line_newlines<'a>() {
+        fn mk_input<'a>(len: usize) -> LineSegments<'a, Style> {
             const IN: &str = "_0123456789abcdefZ";
             let v = &[*S1, *S2];
             let s1s2 = v.iter().cycle();
@@ -736,7 +736,7 @@ mod tests {
                 .map(|(style, text)| (style.clone(), *text))
                 .collect()
         }
-        fn mk_input_nl(len: usize) -> Vec<(Style, &'static str)> {
+        fn mk_input_nl<'a>(len: usize) -> LineSegments<'a, Style> {
             const NL: &str = "\n";
             let mut line = mk_input(len);
             line.push((*S2, NL));
@@ -744,11 +744,11 @@ mod tests {
         }
         fn mk_expected<'a>(
             prepend: Option<(Style, &'a str)>,
-            vec: &Vec<(Style, &'a str)>,
+            vec: &LineSegments<'a, Style>,
             from: usize,
             to: usize,
             append: Option<(Style, &'a str)>,
-        ) -> Vec<(Style, &'a str)> {
+        ) -> LineSegments<'a, Style> {
             let mut result: Vec<_> = vec[from..to].iter().cloned().collect();
             if let Some(val) = append {
                 result.push(val);
