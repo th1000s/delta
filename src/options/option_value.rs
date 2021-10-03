@@ -7,6 +7,7 @@ pub enum OptionValue {
     OptionString(Option<String>),
     String(String),
     Int(usize),
+    SignedInt(isize),
 }
 
 /// An OptionValue, tagged according to its provenance/semantics.
@@ -92,6 +93,21 @@ impl From<OptionValue> for usize {
         match value {
             OptionValue::Int(value) => value,
             _ => delta_unreachable("Error converting OptionValue to usize."),
+        }
+    }
+}
+
+impl From<isize> for OptionValue {
+    fn from(value: isize) -> Self {
+        OptionValue::SignedInt(value)
+    }
+}
+
+impl From<OptionValue> for isize {
+    fn from(value: OptionValue) -> Self {
+        match value {
+            OptionValue::SignedInt(value) => value,
+            _ => delta_unreachable("Error converting OptionValue to isize."),
         }
     }
 }
