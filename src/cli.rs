@@ -14,19 +14,8 @@ use crate::bat_utils::output::PagingMode;
 use crate::git_config::{GitConfig, GitConfigEntry};
 use crate::options;
 
-pub const INLINE_SYMBOL_WIDTH_1: usize = 1;
-
-fn ensure_display_width(arg: &str) -> Result<String, String> {
-    match arg.grapheme_indices(true).count() {
-        INLINE_SYMBOL_WIDTH_1 => Ok(arg.into()),
-        width => Err(format!(
-            "Display width of \"{}\" must be {} but is {}",
-            arg, INLINE_SYMBOL_WIDTH_1, width
-        )),
-    }
-}
-
-#[derive(StructOpt, Default)]
+// No Default trait as this ignores `default_value = ..`
+#[derive(StructOpt)]
 #[structopt(
     name = "delta",
     about = "A viewer for git and diff output",
