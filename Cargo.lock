@@ -514,7 +514,15 @@ dependencies = [
 
 [[package]]
 name = "git-delta"
-version = "0.12.1"
+version = "0.13.0"
+dependencies = [
+ "git-delta-lib",
+]
+
+[[package]]
+name = "git-delta-lib"
+version = "0.0.0"
+source = "git+https://github.com/th1000s/delta?branch=librarification#b80a516d96217ad12baafb08a71b9ae591520c14"
 dependencies = [
  "ansi_colours",
  "ansi_term",
